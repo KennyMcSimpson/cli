@@ -302,7 +302,7 @@ async function interactiveOptions(
     message: 'Select your MiniMax service region',
     choices: [
       { value: 'global', label: 'Global (minimax.io)' },
-      { value: 'cn', label: 'Mainland China (minimaxi.com)' },
+      { value: 'cn', label: 'Mainland China (minimax.cn)' },
     ],
     initialValue: config.region,
   });

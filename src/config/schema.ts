@@ -5,7 +5,7 @@ export const REGIONS = {
 
 export const DOCS_HOSTS = {
   global: 'https://platform.minimax.io',
-  cn: 'https://platform.minimaxi.com',
+  cn: 'https://platform.minimax.cn',
 } as const;
 
 export const OAUTH_HOSTS = {
