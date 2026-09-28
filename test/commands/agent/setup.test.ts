@@ -119,6 +119,27 @@ describe('agent setup command', () => {
     )).rejects.toThrow('A MiniMax API key is required');
   });
 
+  it('reuses an existing Codex MiniMax provider key when no key is passed', async () => {
+    mkdirSync(join(home, '.codex'), { recursive: true });
+    writeFileSync(
+      join(home, '.codex', 'config.toml'),
+      '[model_providers.minimax]\nexperimental_bearer_token = "sk-api-existing-key"\n',
+    );
+
+    const output = await captureConsoleLog(() => setupCommand.execute(
+      testConfig(),
+      testFlags({
+        agent: ['codex'],
+        region: 'cn',
+        output: 'json',
+      }),
+    ));
+
+    const parsed = JSON.parse(output);
+    expect(parsed.verification.status).toBe('skipped');
+    expect(output).not.toContain('sk-api-existing-key');
+  });
+
   it('does not reuse an API key saved for mmx', async () => {
     await expect(setupCommand.execute(
       testConfig({ fileApiKey: 'sk-saved-mmx-key' }),
@@ -266,6 +287,18 @@ describe('agent setup command', () => {
       }),
     ));
     expect(JSON.parse(output).verification.model).toBe('MiniMax-M2.7');
+  });
+
+  it('uses MiniMax-M3.1-Flash-Preview when no model is specified', async () => {
+    const output = await captureConsoleLog(() => setupCommand.execute(
+      testConfig(),
+      testFlags({
+        agent: ['codex'],
+        apiKey: 'sk-test-secret',
+        region: 'cn',
+      }),
+    ));
+    expect(JSON.parse(output).verification.model).toBe('MiniMax-M3.1-Flash-Preview');
   });
 
   it('rejects a legacy model outside this setup contract', async () => {

@@ -48,7 +48,7 @@ function minimaxModel(modelId: MiniMaxModelId) {
 }
 
 function claudeModelId(modelId: MiniMaxModelId): string {
-  return modelId === 'MiniMax-M3' ? `${modelId}[1m]` : modelId;
+  return minimaxModel(modelId).contextWindow >= 1000000 ? `${modelId}[1m]` : modelId;
 }
 
 function grokModelProfile(modelId: MiniMaxModelId): string {
@@ -497,7 +497,7 @@ function prepareClaude(options: AgentSetupOptions, path: string): PreparedAgentF
     label: candidate.id,
     description: candidate.id.endsWith('-highspeed')
       ? '204.8K context · faster inference'
-      : `${candidate.contextWindow === 1000000 ? '1M' : '204.8K'} context`,
+      : `${candidate.contextWindow >= 1000000 ? '1M' : '204.8K'} context`,
   }));
   const managedPickerModels = new Set(MINIMAX_MODELS.flatMap(candidate => [
     candidate.id,
@@ -552,14 +552,11 @@ function codexModelCatalog(): string {
     models: MINIMAX_MODELS.map((model, priority) => ({
       slug: model.id,
       display_name: model.id,
-      description: 'MiniMax',
-      default_reasoning_level: 'high',
-      supported_reasoning_levels: model.id === 'MiniMax-M3'
-        ? [
-          { effort: 'none', description: 'Think-Off' },
-          { effort: 'high', description: 'Deep' },
-        ]
-        : [{ effort: 'high', description: 'Always on' }],
+      description: model.id === 'MiniMax-M3.1-Flash-Preview'
+        ? 'MiniMax M3.1 Flash Preview'
+        : 'MiniMax',
+      default_reasoning_level: model.codex.defaultReasoningLevel,
+      supported_reasoning_levels: model.codex.supportedReasoningLevels,
       shell_type: 'shell_command',
       visibility: 'list',
       supported_in_api: true,
@@ -568,9 +565,20 @@ function codexModelCatalog(): string {
       supports_reasoning_summaries: true,
       default_reasoning_summary: 'none',
       support_verbosity: false,
-      truncation_policy: { mode: 'bytes', limit: 10000 },
+      truncation_policy: { mode: 'tokens', limit: 10000 },
       supports_parallel_tool_calls: true,
       experimental_supported_tools: [],
+      prefer_websockets: false,
+      apply_patch_tool_type: 'freeform',
+      web_search_tool_type: 'text',
+      supports_image_detail_original: false,
+      tool_mode: 'code_mode_only',
+      multi_agent_version: 'v2',
+      use_responses_lite: false,
+      effective_context_window_percent: 95,
+      auto_compact_token_limit: null,
+      reasoning_summary_format: 'experimental',
+      supports_search_tool: true,
       context_window: model.contextWindow,
       max_context_window: model.contextWindow,
       input_modalities: [...model.input],
@@ -588,6 +596,8 @@ function prepareCodex(options: AgentSetupOptions, paths: string[]): PreparedAgen
   let configAfter = updateToml(config.before, 'Codex config.toml', {
     model: options.model,
     model_provider: 'minimax',
+    preferred_auth_method: 'apikey',
+    forced_login_method: 'api',
   }, [{
     name: 'model_providers.minimax',
     entries: {

@@ -94,6 +94,11 @@ describe('agent configurator', () => {
     expect(claude.modelPicker).toEqual({
       options: [
         { model: 'keep-model', label: 'Keep' },
+        {
+          model: 'MiniMax-M3.1-Flash-Preview[1m]',
+          label: 'MiniMax-M3.1-Flash-Preview',
+          description: '1M context',
+        },
         { model: 'MiniMax-M3[1m]', label: 'MiniMax-M3', description: '1M context' },
         { model: 'MiniMax-M2.7', label: 'MiniMax-M2.7', description: '204.8K context' },
         {
@@ -108,6 +113,8 @@ describe('agent configurator', () => {
     const codex = parseToml(readFileSync(join(home, '.codex', 'config.toml'), 'utf8'));
     expect(codex.model).toBe('MiniMax-M3');
     expect(codex.model_provider).toBe('minimax');
+    expect(codex.preferred_auth_method).toBe('apikey');
+    expect(codex.forced_login_method).toBe('api');
     expect(codex.model_catalog_json).toBe('mmx-model-catalog.json');
     expect(codex.mcp_servers).toEqual({ keep: { command: 'keep' } });
     expect((codex.model_providers as Record<string, Record<string, unknown>>).minimax.base_url)
@@ -116,11 +123,39 @@ describe('agent configurator', () => {
       readFileSync(join(home, '.codex', 'mmx-model-catalog.json'), 'utf8'),
     );
     expect(codexCatalog._managed_by).toBe('mmx agent setup');
-    expect(codexCatalog.models).toHaveLength(3);
+    expect(codexCatalog.models).toHaveLength(4);
     expect(codexCatalog.models[0]).toMatchObject({
+      slug: 'MiniMax-M3.1-Flash-Preview',
+      description: 'MiniMax M3.1 Flash Preview',
+      priority: 0,
+      default_reasoning_level: 'max',
+      supported_reasoning_levels: [
+        { effort: 'low', description: 'Low' },
+        { effort: 'medium', description: 'Medium' },
+        { effort: 'high', description: 'High' },
+        { effort: 'xhigh', description: 'Extra high' },
+        { effort: 'max', description: 'Maximum' },
+      ],
+      apply_patch_tool_type: 'freeform',
+      web_search_tool_type: 'text',
+      supports_image_detail_original: false,
+      truncation_policy: { mode: 'tokens', limit: 10000 },
+      tool_mode: 'code_mode_only',
+      multi_agent_version: 'v2',
+      use_responses_lite: false,
+      effective_context_window_percent: 95,
+      auto_compact_token_limit: null,
+      reasoning_summary_format: 'experimental',
+      supports_search_tool: true,
+      supports_parallel_tool_calls: true,
+      context_window: 1048576,
+      max_context_window: 1048576,
+      input_modalities: ['text', 'image'],
+    });
+    expect(codexCatalog.models[1]).toMatchObject({
       slug: 'MiniMax-M3',
       description: 'MiniMax',
-      priority: 0,
+      priority: 1,
       base_instructions: 'You are Codex, a coding agent based on MiniMax-M3. '
         + "You and the user share the same workspace and collaborate to achieve the user's goals.",
       shell_type: 'shell_command',
@@ -133,18 +168,18 @@ describe('agent configurator', () => {
         { effort: 'high', description: 'Deep' },
       ],
     });
-    expect(codexCatalog.models[1]).toMatchObject({
+    expect(codexCatalog.models[2]).toMatchObject({
       slug: 'MiniMax-M2.7',
-      priority: 1,
+      priority: 2,
       context_window: 204800,
       max_context_window: 204800,
       input_modalities: ['text'],
       supported_reasoning_levels: [{ effort: 'high', description: 'Always on' }],
     });
-    expect(codexCatalog.models[2].slug).toBe('MiniMax-M2.7-highspeed');
-    expect(codexCatalog.models[2].supported_reasoning_levels)
+    expect(codexCatalog.models[3].slug).toBe('MiniMax-M2.7-highspeed');
+    expect(codexCatalog.models[3].supported_reasoning_levels)
       .toEqual([{ effort: 'high', description: 'Always on' }]);
-    expect(codexCatalog.models[0].apply_patch_tool_type).toBeUndefined();
+    expect(codexCatalog.models[1].apply_patch_tool_type).toBe('freeform');
 
     const grok = parseToml(readFileSync(join(home, '.grok', 'config.toml'), 'utf8'));
     expect((grok.models as Record<string, unknown>).default).toBe('minimax');
@@ -185,7 +220,12 @@ describe('agent configurator', () => {
     expect(hermes.model.max_tokens).toBe(128000);
     expect(hermes.agent.reasoning_overrides['MiniMax-M3']).toBe('none');
     expect(Object.keys(hermes.providers['minimax-cn'].models))
-      .toEqual(['MiniMax-M3', 'MiniMax-M2.7', 'MiniMax-M2.7-highspeed']);
+      .toEqual([
+        'MiniMax-M3.1-Flash-Preview',
+        'MiniMax-M3',
+        'MiniMax-M2.7',
+        'MiniMax-M2.7-highspeed',
+      ]);
     expect(readFileSync(join(home, '.hermes', '.env'), 'utf8'))
       .toContain('MINIMAX_CN_API_KEY=sk-test-secret');
 
@@ -206,10 +246,17 @@ describe('agent configurator', () => {
       .toEqual({ supportsStrictTools: true, forceAdaptiveThinking: true });
     expect(piModels.providers['minimax-cn'].models[2].thinkingLevelMap).toEqual({ off: null });
     expect(piModels.providers['minimax-cn'].models[3].thinkingLevelMap).toEqual({ off: null });
+    expect(piModels.providers['minimax-cn'].models[4].thinkingLevelMap).toEqual({ off: null });
     expect(piModels.providers['minimax-cn'].api).toBe('anthropic-messages');
     expect(piModels.providers['minimax-cn'].baseUrl).toBe('https://api.minimaxi.com/anthropic');
     expect(piModels.providers['minimax-cn'].models.map((model: { id: string }) => model.id))
-      .toEqual(['keep-model', 'MiniMax-M3', 'MiniMax-M2.7', 'MiniMax-M2.7-highspeed']);
+      .toEqual([
+        'keep-model',
+        'MiniMax-M3',
+        'MiniMax-M3.1-Flash-Preview',
+        'MiniMax-M2.7',
+        'MiniMax-M2.7-highspeed',
+      ]);
     expect(piSettings).toMatchObject({ defaultProvider: 'minimax-cn', defaultModel: 'MiniMax-M3' });
 
     for (const file of result) {
@@ -294,10 +341,15 @@ describe('agent configurator', () => {
 
     const configured = JSON.parse(readFileSync(modelsPath, 'utf8'));
     expect(configured.providers.minimax.models.map((model: { id: string }) => model.id))
-      .toEqual(['MiniMax-M3', 'MiniMax-M2.7', 'MiniMax-M2.7-highspeed']);
+      .toEqual([
+        'MiniMax-M3.1-Flash-Preview',
+        'MiniMax-M3',
+        'MiniMax-M2.7',
+        'MiniMax-M2.7-highspeed',
+      ]);
     expect(configured.providers.minimax.models[0]).toMatchObject({
       input: ['text', 'image'],
-      contextWindow: 1000000,
+      contextWindow: 1048576,
       maxTokens: 128000,
     });
   });

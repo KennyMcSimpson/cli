@@ -1,4 +1,9 @@
+import { readFileSync } from 'fs';
+import { homedir } from 'os';
+import { isAbsolute, join, resolve } from 'path';
+
 import colors from 'picocolors';
+import { parse as parseToml } from 'smol-toml';
 
 import { defineCommand } from '../../command';
 import {
@@ -122,6 +127,26 @@ function detectApiKeyKind(apiKey: string): ApiKeyKind | undefined {
   if (apiKey.startsWith('sk-cp-')) return 'token-plan';
   if (apiKey.startsWith('sk-api-')) return 'paygo';
   return undefined;
+}
+
+function readExistingCodexApiKey(agents: AgentId[]): string | undefined {
+  if (!agents.includes('codex')) return undefined;
+  const home = process.env.HOME?.trim() || homedir();
+  const configuredHome = process.env.CODEX_HOME?.trim();
+  const codexHome = configuredHome
+    ? isAbsolute(configuredHome) ? configuredHome : resolve(home, configuredHome)
+    : join(home, '.codex');
+  try {
+    const config = parseToml(readFileSync(join(codexHome, 'config.toml'), 'utf8')) as Record<string, unknown>;
+    const providers = config.model_providers;
+    if (typeof providers !== 'object' || providers === null || Array.isArray(providers)) return undefined;
+    const minimax = (providers as Record<string, unknown>).minimax;
+    if (typeof minimax !== 'object' || minimax === null || Array.isArray(minimax)) return undefined;
+    const token = (minimax as Record<string, unknown>).experimental_bearer_token;
+    return typeof token === 'string' && token.trim() ? token.trim() : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function formatAgentSetupResult(
@@ -263,6 +288,13 @@ async function interactiveOptions(
   }
   const agents = uniqueAgents(selectedAgents);
 
+  if (agents.includes('codex')) {
+    await promptNote({
+      title: 'Codex version recommendation',
+      message: `Use Codex CLI ${colors.bold(colors.cyan('0.146.0'))} or newer for the complete MiniMax model catalog.`,
+    });
+  }
+
   const notDetected = agents.filter((agent) => !detectedAgents.has(agent));
   const agentsToInstall = await selectMissingAgentInstallations(agents, detectedAgents);
 
@@ -277,24 +309,34 @@ async function interactiveOptions(
   if (selectedRegion !== 'global' && selectedRegion !== 'cn') {
     throw new CLIError('Agent setup cancelled.', ExitCode.GENERAL);
   }
-  const selectedKeyKind = await promptSelect({
-    message: 'Choose an API key type',
-    choices: API_KEY_CHOICES,
-    initialValue: 'token-plan',
-  });
-  const keyChoice = API_KEY_CHOICES.find(choice => choice.value === selectedKeyKind);
-  if (!keyChoice) throw new CLIError('Agent setup cancelled.', ExitCode.GENERAL);
+  let apiKey = readExistingCodexApiKey(agents);
+  let keyChoice: typeof API_KEY_CHOICES[number] | undefined;
+  if (apiKey) {
+    await promptNote({
+      title: 'Reusing existing Codex API key',
+      message: 'Found an existing MiniMax API key in ~/.codex/config.toml; it will be reused. '
+        + 'Pass --api-key explicitly if you want to replace it.',
+    });
+  } else {
+    const selectedKeyKind = await promptSelect({
+      message: 'Choose an API key type',
+      choices: API_KEY_CHOICES,
+      initialValue: 'token-plan',
+    });
+    keyChoice = API_KEY_CHOICES.find(choice => choice.value === selectedKeyKind);
+    if (!keyChoice) throw new CLIError('Agent setup cancelled.', ExitCode.GENERAL);
 
-  await promptNote({
-    title: keyChoice.noteTitle,
-    message: `${DOCS_HOSTS[selectedRegion]}${keyChoice.pagePath}\n\nCopy the key, then paste it below.`,
-  });
-  const apiKey = (await promptApiKey({
-    message: keyChoice.prompt,
-  }))?.trim();
+    await promptNote({
+      title: keyChoice.noteTitle,
+      message: `${DOCS_HOSTS[selectedRegion]}${keyChoice.pagePath}\n\nCopy the key, then paste it below.`,
+    });
+    apiKey = (await promptApiKey({
+      message: keyChoice.prompt,
+    }))?.trim();
+  }
 
   const detectedKind = apiKey ? detectApiKeyKind(apiKey) : undefined;
-  if (detectedKind && detectedKind !== keyChoice.value) {
+  if (detectedKind && keyChoice && detectedKind !== keyChoice.value) {
     const detectedChoice = API_KEY_CHOICES.find(choice => choice.value === detectedKind);
     if (detectedChoice) {
       await promptNote({
@@ -356,12 +398,12 @@ function nonInteractiveOptions(flags: GlobalFlags): SelectedAgentSetup {
     );
   }
 
-  const apiKey = (flags.apiKey as string | undefined)?.trim();
+  const apiKey = (flags.apiKey as string | undefined)?.trim() || readExistingCodexApiKey(selected);
   if (!apiKey) {
     throw new CLIError(
       'A MiniMax API key is required in non-interactive mode.',
       ExitCode.USAGE,
-      'Pass --api-key <key>.\n'
+      'Pass --api-key <key>, or configure an existing Codex MiniMax provider Key.\n'
         + 'Token Plan keys (sk-cp-...) and pay-as-you-go keys (sk-api-...) use separate quotas.',
     );
   }
@@ -397,7 +439,8 @@ export default defineCommand({
     },
     {
       flag: '--api-key <key>',
-      description: 'API key only; Token Plan (sk-cp) and pay-as-you-go (sk-api) keys are not interchangeable',
+      description: 'API key; reuses an existing Codex MiniMax provider Key when --api-key is omitted. '
+        + 'Token Plan (sk-cp) and pay-as-you-go (sk-api) keys are not interchangeable',
     },
     { flag: '--all', description: 'Configure every supported agent' },
     {
