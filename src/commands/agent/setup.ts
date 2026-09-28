@@ -131,7 +131,7 @@ function detectApiKeyKind(apiKey: string): ApiKeyKind | undefined {
 
 function readExistingCodexApiKey(agents: AgentId[]): string | undefined {
   if (!agents.includes('codex')) return undefined;
-  const home = process.env.HOME?.trim() || homedir();
+  const home = homedir();
   const configuredHome = process.env.CODEX_HOME?.trim();
   const codexHome = configuredHome
     ? isAbsolute(configuredHome) ? configuredHome : resolve(home, configuredHome)

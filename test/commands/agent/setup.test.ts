@@ -55,16 +55,21 @@ async function captureConsoleLog(task: () => Promise<void>): Promise<string> {
 describe('agent setup command', () => {
   let home: string;
   let originalHome: string | undefined;
+  let originalCodexHome: string | undefined;
 
   beforeEach(() => {
     home = mkdtempSync(join(tmpdir(), 'mmx-agent-command-'));
     originalHome = process.env.HOME;
+    originalCodexHome = process.env.CODEX_HOME;
     process.env.HOME = home;
+    process.env.CODEX_HOME = join(home, '.codex');
   });
 
   afterEach(() => {
     if (originalHome === undefined) delete process.env.HOME;
     else process.env.HOME = originalHome;
+    if (originalCodexHome === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = originalCodexHome;
     rmSync(home, { recursive: true, force: true });
   });
 
