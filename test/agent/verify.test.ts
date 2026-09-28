@@ -145,12 +145,12 @@ describe('agent credential verification', () => {
 
   it('explains DNS failures without exposing the generic fetch message', async () => {
     globalThis.fetch = (async () => {
-      throw fetchFailure('EAI_AGAIN', 'getaddrinfo EAI_AGAIN api.minimaxi.com');
+      throw fetchFailure('EAI_AGAIN', 'getaddrinfo EAI_AGAIN api.minimax.cn');
     }) as unknown as typeof fetch;
 
     const caught = await captureVerificationError({ region: 'cn' });
 
-    expect(caught.message).toBe('Could not resolve api.minimaxi.com.');
+    expect(caught.message).toBe('Could not resolve api.minimax.cn.');
     expect(caught.message).not.toContain('fetch failed');
     expect(caught.exitCode).toBe(ExitCode.NETWORK);
     expect(caught.hint).toContain('Check DNS and internet access');

@@ -58,7 +58,7 @@ function grokModelProfile(modelId: MiniMaxModelId): string {
 }
 
 export function endpointsForRegion(region: AgentSetupOptions['region']) {
-  const host = region === 'cn' ? 'https://api.minimaxi.com' : 'https://api.minimax.io';
+  const host = region === 'cn' ? 'https://api.minimax.cn' : 'https://api.minimax.io';
   return {
     anthropic: `${host}/anthropic`,
     openai: `${host}/v1`,

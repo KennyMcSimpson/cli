@@ -54,7 +54,7 @@ describe('loadConfig', () => {
     const config = loadConfig({ ...baseFlags, region: 'cn' });
 
     expect(config.region).toBe('cn');
-    expect(config.baseUrl).toBe('https://api.minimaxi.com');
+    expect(config.baseUrl).toBe('https://api.minimax.cn');
   });
 });
 

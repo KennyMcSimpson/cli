@@ -12,7 +12,7 @@ import type { GlobalFlags } from '../../../src/types/flags';
 function testConfig(overrides: Partial<Config> = {}): Config {
   return {
     region: 'cn',
-    baseUrl: 'https://api.minimaxi.com',
+    baseUrl: 'https://api.minimax.cn',
     output: 'json',
     timeout: 30,
     verbose: false,

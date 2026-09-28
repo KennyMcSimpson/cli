@@ -83,7 +83,7 @@ describe('agent configurator', () => {
 
     const claude = JSON.parse(readFileSync(join(home, '.claude', 'settings.json'), 'utf8'));
     expect(claude.theme).toBe('dark');
-    expect(claude.env.ANTHROPIC_BASE_URL).toBe('https://api.minimaxi.com/anthropic');
+    expect(claude.env.ANTHROPIC_BASE_URL).toBe('https://api.minimax.cn/anthropic');
     expect(claude.env.ANTHROPIC_AUTH_TOKEN).toBe('sk-test-secret');
     expect(claude.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW).toBe('1000000');
     expect(claude.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS).toBeUndefined();
@@ -118,7 +118,7 @@ describe('agent configurator', () => {
     expect(codex.model_catalog_json).toBe('mmx-model-catalog.json');
     expect(codex.mcp_servers).toEqual({ keep: { command: 'keep' } });
     expect((codex.model_providers as Record<string, Record<string, unknown>>).minimax.base_url)
-      .toBe('https://api.minimaxi.com/v1');
+      .toBe('https://api.minimax.cn/v1');
     const codexCatalog = JSON.parse(
       readFileSync(join(home, '.codex', 'mmx-model-catalog.json'), 'utf8'),
     );
@@ -197,7 +197,7 @@ describe('agent configurator', () => {
     expect(openCodeText).toContain('// keep this setting');
     expect(openCode.theme).toBe('system');
     expect(openCode.model).toBe('minimax/MiniMax-M3');
-    expect(openCode.provider.minimax.options.baseURL).toBe('https://api.minimaxi.com/v1');
+    expect(openCode.provider.minimax.options.baseURL).toBe('https://api.minimax.cn/v1');
     expect(openCode.provider.minimax.options.headers).toEqual({ 'x-keep': 'yes' });
     expect(openCode.provider.minimax.models['keep-model']).toEqual({ name: 'Keep' });
     expect(openCode.provider.minimax.models['MiniMax-M3'].custom).toBe(true);
@@ -248,7 +248,7 @@ describe('agent configurator', () => {
     expect(piModels.providers['minimax-cn'].models[3].thinkingLevelMap).toEqual({ off: null });
     expect(piModels.providers['minimax-cn'].models[4].thinkingLevelMap).toEqual({ off: null });
     expect(piModels.providers['minimax-cn'].api).toBe('anthropic-messages');
-    expect(piModels.providers['minimax-cn'].baseUrl).toBe('https://api.minimaxi.com/anthropic');
+    expect(piModels.providers['minimax-cn'].baseUrl).toBe('https://api.minimax.cn/anthropic');
     expect(piModels.providers['minimax-cn'].models.map((model: { id: string }) => model.id))
       .toEqual([
         'keep-model',
@@ -596,7 +596,7 @@ describe('agent configurator', () => {
     applyAgentConfigurations(prepareAgentConfigurations(setupOptions(['codex'], { region: 'cn' })));
 
     expect(lstatSync(link).isSymbolicLink()).toBe(true);
-    expect(readFileSync(target, 'utf8')).toContain('https://api.minimaxi.com/v1');
+    expect(readFileSync(target, 'utf8')).toContain('https://api.minimax.cn/v1');
   });
 
   it('rejects a symbolic link whose target changed after preparation', () => {

@@ -7,7 +7,7 @@ describe('quotaEndpoint', () => {
   });
 
   it('uses token_plan/remains for cn', () => {
-    expect(quotaEndpoint('https://api.minimaxi.com')).toBe('https://api.minimaxi.com/v1/token_plan/remains');
+    expect(quotaEndpoint('https://api.minimax.cn')).toBe('https://api.minimax.cn/v1/token_plan/remains');
   });
 
   it('honors a custom base URL', () => {
