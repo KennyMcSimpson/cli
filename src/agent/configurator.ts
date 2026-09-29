@@ -575,7 +575,7 @@ function codexModelCatalog(): string {
       tool_mode: 'code_mode_only',
       multi_agent_version: 'v2',
       use_responses_lite: false,
-      effective_context_window_percent: 95,
+      effective_context_window_percent: 85,
       auto_compact_token_limit: null,
       reasoning_summary_format: 'experimental',
       supports_search_tool: true,
@@ -593,8 +593,10 @@ function prepareCodex(options: AgentSetupOptions, paths: string[]): PreparedAgen
   }
   const config = readPrepared(configPath);
   const endpoints = endpointsForRegion(options.region);
+  const model = minimaxModel(options.model);
   let configAfter = updateToml(config.before, 'Codex config.toml', {
     model: options.model,
+    model_reasoning_effort: model.codex.defaultReasoningLevel,
     model_provider: 'minimax',
     preferred_auth_method: 'apikey',
     forced_login_method: 'api',

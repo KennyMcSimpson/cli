@@ -112,6 +112,7 @@ describe('agent configurator', () => {
 
     const codex = parseToml(readFileSync(join(home, '.codex', 'config.toml'), 'utf8'));
     expect(codex.model).toBe('MiniMax-M3');
+    expect(codex.model_reasoning_effort).toBe('high');
     expect(codex.model_provider).toBe('minimax');
     expect(codex.preferred_auth_method).toBe('apikey');
     expect(codex.forced_login_method).toBe('api');
@@ -143,7 +144,7 @@ describe('agent configurator', () => {
       tool_mode: 'code_mode_only',
       multi_agent_version: 'v2',
       use_responses_lite: false,
-      effective_context_window_percent: 95,
+      effective_context_window_percent: 85,
       auto_compact_token_limit: null,
       reasoning_summary_format: 'experimental',
       supports_search_tool: true,
@@ -180,6 +181,18 @@ describe('agent configurator', () => {
     expect(codexCatalog.models[3].supported_reasoning_levels)
       .toEqual([{ effort: 'high', description: 'Always on' }]);
     expect(codexCatalog.models[1].apply_patch_tool_type).toBe('freeform');
+
+    const m31Home = join(tmpdir(), `mmx-agent-config-m31-${process.pid}-${Date.now()}`);
+    mkdirSync(join(m31Home, '.codex'), { recursive: true });
+    writeFileSync(join(m31Home, '.codex', 'config.toml'), 'model_reasoning_effort = "medium"\n');
+    const m31Options = setupOptions(['codex'], {
+      homeDir: m31Home,
+      model: 'MiniMax-M3.1-Flash-Preview',
+    });
+    applyAgentConfigurations(prepareAgentConfigurations(m31Options));
+    const m31Config = parseToml(readFileSync(join(m31Home, '.codex', 'config.toml'), 'utf8'));
+    expect(m31Config.model_reasoning_effort).toBe('max');
+    rmSync(m31Home, { recursive: true, force: true });
 
     const grok = parseToml(readFileSync(join(home, '.grok', 'config.toml'), 'utf8'));
     expect((grok.models as Record<string, unknown>).default).toBe('minimax');
