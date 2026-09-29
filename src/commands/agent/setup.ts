@@ -129,6 +129,10 @@ function detectApiKeyKind(apiKey: string): ApiKeyKind | undefined {
   return undefined;
 }
 
+function defaultModelForApiKey(apiKey: string): typeof DEFAULT_MINIMAX_MODEL | 'MiniMax-M3' {
+  return detectApiKeyKind(apiKey) === 'paygo' ? 'MiniMax-M3' : DEFAULT_MINIMAX_MODEL;
+}
+
 function readExistingCodexApiKey(agents: AgentId[]): string | undefined {
   if (!agents.includes('codex')) return undefined;
   const home = homedir();
@@ -137,7 +141,8 @@ function readExistingCodexApiKey(agents: AgentId[]): string | undefined {
     ? isAbsolute(configuredHome) ? configuredHome : resolve(home, configuredHome)
     : join(home, '.codex');
   try {
-    const config = parseToml(readFileSync(join(codexHome, 'config.toml'), 'utf8')) as Record<string, unknown>;
+    const source = readFileSync(join(codexHome, 'config.toml'), 'utf8');
+    const config = parseToml(source.charCodeAt(0) === 0xfeff ? source.slice(1) : source) as Record<string, unknown>;
     const providers = config.model_providers;
     if (typeof providers !== 'object' || providers === null || Array.isArray(providers)) return undefined;
     const minimax = (providers as Record<string, unknown>).minimax;
@@ -309,13 +314,31 @@ async function interactiveOptions(
   if (selectedRegion !== 'global' && selectedRegion !== 'cn') {
     throw new CLIError('Agent setup cancelled.', ExitCode.GENERAL);
   }
+
+  let m31ContextWindow: 524288 | 1_000_000 = 524288;
+  if (agents.some(agent => agent === 'claude-code' || agent === 'codex' || agent === 'opencode')) {
+    const selectedWindow = await promptSelect({
+      message: 'Choose the MiniMax-M3.1-Flash-Preview context window',
+      choices: [
+        { value: '512k', label: '512K (Recommended)' },
+        { value: '1m', label: '1M' },
+      ],
+      initialValue: '512k',
+    });
+    if (selectedWindow !== '512k' && selectedWindow !== '1m') {
+      throw new CLIError('Agent setup cancelled.', ExitCode.GENERAL);
+    }
+    m31ContextWindow = selectedWindow === '1m' ? 1_000_000 : 524288;
+  }
+
   let apiKey = readExistingCodexApiKey(agents);
   let keyChoice: typeof API_KEY_CHOICES[number] | undefined;
   if (apiKey) {
     await promptNote({
       title: 'Reusing existing Codex API key',
       message: 'Found an existing MiniMax API key in ~/.codex/config.toml; it will be reused. '
-        + 'Pass --api-key explicitly if you want to replace it.',
+        + `To replace it, run mmx agent setup ${agents.map(agent => `--agent ${agent}`).join(' ')}`
+        + ` --region ${selectedRegion} --api-key <key>.`,
     });
   } else {
     const selectedKeyKind = await promptSelect({
@@ -348,6 +371,17 @@ async function interactiveOptions(
   if (!apiKey) {
     throw new CLIError('A MiniMax API key is required.', ExitCode.USAGE);
   }
+  const model = defaultModelForApiKey(apiKey);
+  if (model === 'MiniMax-M3') {
+    await promptNote({
+      title: 'Model for pay-as-you-go key',
+      message: 'MiniMax-M3.1-Flash-Preview currently requires Token Plan or MiniMax Code. '
+        + 'This setup will use MiniMax-M3.'
+        + (agents.some(agent => agent === 'claude-code' || agent === 'codex' || agent === 'opencode')
+          ? ' The earlier window choice applies to the M3.1 model entry, not the active M3 model.'
+          : ''),
+    });
+  }
 
   let message = `Configure ${agents.map((agent) => AGENT_LABELS[agent]).join(', ')}? `
     + 'mmx will write configuration files.';
@@ -367,7 +401,8 @@ async function interactiveOptions(
     agentsToInstall,
     apiKey,
     region: selectedRegion,
-    model: DEFAULT_MINIMAX_MODEL,
+    model,
+    m31ContextWindow,
   };
 }
 
@@ -390,6 +425,24 @@ function nonInteractiveOptions(flags: GlobalFlags): SelectedAgentSetup {
     );
   }
 
+  const requestedWindow = flags.m31ContextWindow;
+  if (requestedWindow !== undefined
+    && requestedWindow !== '512k'
+    && requestedWindow !== '1m') {
+    throw new CLIError(
+      'Invalid --m31-context-window value.',
+      ExitCode.USAGE,
+      'Use --m31-context-window 512k or --m31-context-window 1m.',
+    );
+  }
+  if (requestedWindow !== undefined
+    && !selected.some(agent => agent === 'claude-code' || agent === 'codex' || agent === 'opencode')) {
+    throw new CLIError(
+      '--m31-context-window requires Claude Code, Codex, or OpenCode.',
+      ExitCode.USAGE,
+    );
+  }
+
   if (flags.region !== 'global' && flags.region !== 'cn') {
     throw new CLIError(
       '--region global|cn is required in non-interactive mode.',
@@ -408,7 +461,7 @@ function nonInteractiveOptions(flags: GlobalFlags): SelectedAgentSetup {
     );
   }
 
-  const model = ((flags.model as string | undefined) ?? DEFAULT_MINIMAX_MODEL).trim();
+  const model = ((flags.model as string | undefined) ?? defaultModelForApiKey(apiKey)).trim();
   if (!model) throw new CLIError('--model must not be empty.', ExitCode.USAGE);
   const supportedModel = MINIMAX_MODELS.find(candidate => candidate.id === model)?.id;
   if (!supportedModel) {
@@ -424,13 +477,14 @@ function nonInteractiveOptions(flags: GlobalFlags): SelectedAgentSetup {
     apiKey,
     region: flags.region,
     model: supportedModel,
+    m31ContextWindow: requestedWindow === '1m' ? 1_000_000 : 524288,
   };
 }
 
 export default defineCommand({
   name: 'agent setup',
   description: 'Configure coding agents using a MiniMax API key and optionally install missing agents',
-  usage: 'mmx agent setup [--agent <name> ... | --all] [--api-key <key>] [--region <region>]',
+  usage: 'mmx agent setup [--agent <name> ... | --all] [--api-key <key>] [--region <region>] [--m31-context-window 512k|1m]',
   options: [
     {
       flag: '--agent <name>',
@@ -447,12 +501,17 @@ export default defineCommand({
       flag: '--model <model>',
       description: `Default model (${MINIMAX_MODELS.map(model => model.id).join(', ')})`,
     },
+    {
+      flag: '--m31-context-window <size>',
+      description: 'MiniMax-M3.1-Flash-Preview window for Claude Code, Codex, and OpenCode: 512k (recommended) or 1m',
+    },
   ],
   examples: [
     'mmx agent setup',
     'mmx agent setup --agent claude-code --agent codex --api-key <key> --region global',
     'mmx agent setup --all --api-key <key> --region cn --output json',
     'mmx agent setup --agent opencode --api-key <key> --region cn --dry-run',
+    'mmx agent setup --agent codex --api-key <key> --region cn --m31-context-window 1m',
   ],
   async run(config: Config, flags: GlobalFlags) {
     const detectedAgents = detectAvailableAgents();

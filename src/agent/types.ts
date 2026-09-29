@@ -30,7 +30,7 @@ export const MINIMAX_MODELS = [
   },
   {
     id: 'MiniMax-M3',
-    contextWindow: 524288,
+    contextWindow: 1_000_000,
     maxTokens: 128000,
     input: ['text', 'image'],
     codex: {
@@ -71,6 +71,7 @@ export interface AgentSetupOptions {
   apiKey: string;
   region: Region;
   model: MiniMaxModelId;
+  m31ContextWindow?: 524288 | 1_000_000;
   homeDir?: string;
   env?: NodeJS.ProcessEnv;
 }
