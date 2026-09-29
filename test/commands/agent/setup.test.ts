@@ -12,7 +12,7 @@ import type { GlobalFlags } from '../../../src/types/flags';
 function testConfig(overrides: Partial<Config> = {}): Config {
   return {
     region: 'cn',
-    baseUrl: 'https://api.minimaxi.com',
+    baseUrl: 'https://api.minimax.cn',
     output: 'json',
     timeout: 30,
     verbose: false,
@@ -55,16 +55,21 @@ async function captureConsoleLog(task: () => Promise<void>): Promise<string> {
 describe('agent setup command', () => {
   let home: string;
   let originalHome: string | undefined;
+  let originalCodexHome: string | undefined;
 
   beforeEach(() => {
     home = mkdtempSync(join(tmpdir(), 'mmx-agent-command-'));
     originalHome = process.env.HOME;
+    originalCodexHome = process.env.CODEX_HOME;
     process.env.HOME = home;
+    process.env.CODEX_HOME = join(home, '.codex');
   });
 
   afterEach(() => {
     if (originalHome === undefined) delete process.env.HOME;
     else process.env.HOME = originalHome;
+    if (originalCodexHome === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = originalCodexHome;
     rmSync(home, { recursive: true, force: true });
   });
 
@@ -99,6 +104,47 @@ describe('agent setup command', () => {
     expect(output).not.toContain('\x1b');
   });
 
+  it('accepts an explicit 1M M3.1 window for supported agents', async () => {
+    const originalClaudeConfig = process.env.CLAUDE_CONFIG_DIR;
+    const originalOpenCodeConfig = process.env.OPENCODE_CONFIG;
+    process.env.CLAUDE_CONFIG_DIR = join(home, '.claude');
+    process.env.OPENCODE_CONFIG = join(home, 'opencode.json');
+    let output: string;
+    try {
+      output = await captureConsoleLog(() => setupCommand.execute(
+        testConfig(),
+        testFlags({
+          agent: ['claude-code', 'codex', 'opencode'],
+          apiKey: 'sk-test-secret',
+          region: 'cn',
+          m31ContextWindow: '1m',
+          output: 'json',
+        }),
+      ));
+    } finally {
+      if (originalClaudeConfig === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+      else process.env.CLAUDE_CONFIG_DIR = originalClaudeConfig;
+      if (originalOpenCodeConfig === undefined) delete process.env.OPENCODE_CONFIG;
+      else process.env.OPENCODE_CONFIG = originalOpenCodeConfig;
+    }
+
+    const parsed = JSON.parse(output);
+    expect(parsed.agents).toEqual(['claude-code', 'codex', 'opencode']);
+    expect(parsed.files.every((file: { status: string }) => file.status === 'would-configure'))
+      .toBe(true);
+  });
+
+  it('rejects invalid M3.1 window values and agents without a window selector', async () => {
+    await expect(setupCommand.execute(
+      testConfig(),
+      testFlags({ agent: ['codex'], apiKey: 'sk-test-secret', region: 'cn', m31ContextWindow: '900k' }),
+    )).rejects.toThrow('Invalid --m31-context-window value');
+    await expect(setupCommand.execute(
+      testConfig(),
+      testFlags({ agent: ['hermes'], apiKey: 'sk-test-secret', region: 'cn', m31ContextWindow: '1m' }),
+    )).rejects.toThrow('--m31-context-window requires Claude Code, Codex, or OpenCode');
+  });
+
   it('requires an explicit region for scripts', async () => {
     await expect(setupCommand.execute(
       testConfig({ region: 'global', baseUrl: 'https://api.minimax.io' }),
@@ -117,6 +163,43 @@ describe('agent setup command', () => {
         region: 'cn',
       }),
     )).rejects.toThrow('A MiniMax API key is required');
+  });
+
+  it('reuses an existing Codex MiniMax provider key when no key is passed', async () => {
+    mkdirSync(join(home, '.codex'), { recursive: true });
+    writeFileSync(
+      join(home, '.codex', 'config.toml'),
+      '[model_providers.minimax]\nexperimental_bearer_token = "sk-api-existing-key"\n',
+    );
+
+    const output = await captureConsoleLog(() => setupCommand.execute(
+      testConfig(),
+      testFlags({
+        agent: ['codex'],
+        region: 'cn',
+        output: 'json',
+      }),
+    ));
+
+    const parsed = JSON.parse(output);
+    expect(parsed.verification.status).toBe('skipped');
+    expect(output).not.toContain('sk-api-existing-key');
+  });
+
+  it('reuses an existing Codex key from a UTF-8 BOM config', async () => {
+    mkdirSync(join(home, '.codex'), { recursive: true });
+    writeFileSync(
+      join(home, '.codex', 'config.toml'),
+      '\ufeff[model_providers.minimax]\nexperimental_bearer_token = "sk-cp-existing-key"\n',
+    );
+
+    const output = await captureConsoleLog(() => setupCommand.execute(
+      testConfig(),
+      testFlags({ agent: ['codex'], region: 'cn', output: 'json' }),
+    ));
+
+    expect(JSON.parse(output).verification.model).toBe('MiniMax-M3.1-Flash-Preview');
+    expect(output).not.toContain('sk-cp-existing-key');
   });
 
   it('does not reuse an API key saved for mmx', async () => {
@@ -162,6 +245,7 @@ describe('agent setup command', () => {
 
     expect(stderr).toContain('Usage: mmx agent setup');
     expect(stderr).toContain('--api-key <key>');
+    expect(stderr).toContain('--m31-context-window <size>');
     expect(stderr).toContain('not interchangeable');
   });
 
@@ -266,6 +350,43 @@ describe('agent setup command', () => {
       }),
     ));
     expect(JSON.parse(output).verification.model).toBe('MiniMax-M2.7');
+  });
+
+  it('uses MiniMax-M3.1-Flash-Preview when no model is specified', async () => {
+    const output = await captureConsoleLog(() => setupCommand.execute(
+      testConfig(),
+      testFlags({
+        agent: ['codex'],
+        apiKey: 'sk-cp-test-secret',
+        region: 'cn',
+      }),
+    ));
+    expect(JSON.parse(output).verification.model).toBe('MiniMax-M3.1-Flash-Preview');
+  });
+
+  it('uses MiniMax-M3 by default for pay-as-you-go keys', async () => {
+    const output = await captureConsoleLog(() => setupCommand.execute(
+      testConfig(),
+      testFlags({
+        agent: ['codex'],
+        apiKey: 'sk-api-test-secret',
+        region: 'cn',
+      }),
+    ));
+    expect(JSON.parse(output).verification.model).toBe('MiniMax-M3');
+  });
+
+  it('keeps an explicit model choice for pay-as-you-go keys', async () => {
+    const output = await captureConsoleLog(() => setupCommand.execute(
+      testConfig(),
+      testFlags({
+        agent: ['codex'],
+        apiKey: 'sk-api-test-secret',
+        region: 'cn',
+        model: 'MiniMax-M3.1-Flash-Preview',
+      }),
+    ));
+    expect(JSON.parse(output).verification.model).toBe('MiniMax-M3.1-Flash-Preview');
   });
 
   it('rejects a legacy model outside this setup contract', async () => {

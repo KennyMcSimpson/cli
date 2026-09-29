@@ -24,7 +24,9 @@ function planHintForUrl(url?: string): string {
 }
 
 function upgradeUrl(url?: string): string {
-  const host = url?.includes('minimaxi.com') ? 'https://platform.minimaxi.com' : 'https://platform.minimax.io';
+  const host = url?.includes('api.minimax.cn') || url?.includes('api.minimaxi.com')
+    ? 'https://platform.minimax.cn'
+    : 'https://platform.minimax.io';
   return `${host}/subscribe/token-plan`;
 }
 

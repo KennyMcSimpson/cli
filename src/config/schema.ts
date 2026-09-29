@@ -1,11 +1,11 @@
 export const REGIONS = {
   global: 'https://api.minimax.io',
-  cn: 'https://api.minimaxi.com',
+  cn: 'https://api.minimax.cn',
 } as const;
 
 export const DOCS_HOSTS = {
   global: 'https://platform.minimax.io',
-  cn: 'https://platform.minimaxi.com',
+  cn: 'https://platform.minimax.cn',
 } as const;
 
 export const OAUTH_HOSTS = {

@@ -48,7 +48,9 @@ function minimaxModel(modelId: MiniMaxModelId) {
 }
 
 function claudeModelId(modelId: MiniMaxModelId): string {
-  return modelId === 'MiniMax-M3' ? `${modelId}[1m]` : modelId;
+  return modelId === 'MiniMax-M3.1-Flash-Preview' || modelId === 'MiniMax-M3'
+    ? `${modelId}[1m]`
+    : modelId;
 }
 
 function grokModelProfile(modelId: MiniMaxModelId): string {
@@ -58,7 +60,7 @@ function grokModelProfile(modelId: MiniMaxModelId): string {
 }
 
 export function endpointsForRegion(region: AgentSetupOptions['region']) {
-  const host = region === 'cn' ? 'https://api.minimaxi.com' : 'https://api.minimax.io';
+  const host = region === 'cn' ? 'https://api.minimax.cn' : 'https://api.minimax.io';
   return {
     anthropic: `${host}/anthropic`,
     openai: `${host}/v1`,
@@ -97,13 +99,8 @@ function configPathsForAgent(
       const configDir = join(xdgConfig, 'opencode');
       const jsonPath = join(configDir, 'opencode.json');
       const jsoncPath = join(configDir, 'opencode.jsonc');
-      if (existsSync(jsonPath) && existsSync(jsoncPath)) {
-        throw new CLIError(
-          `Both OpenCode global config files exist: ${jsonPath} and ${jsoncPath}.`,
-          ExitCode.GENERAL,
-          'Keep one global config file, or set OPENCODE_CONFIG to the file mmx should update.',
-        );
-      }
+      // OpenCode merges both files and applies JSONC after JSON, so writing JSONC
+      // ensures the selected MiniMax model is not overridden by the other file.
       return [existsSync(jsoncPath) ? jsoncPath : jsonPath];
     }
     case 'hermes': {
@@ -290,6 +287,18 @@ function upsertTomlRoot(
   return root + source.slice(rootEnd);
 }
 
+function removeTomlRootAssignments(source: string, keys: string[]): string {
+  const firstSection = source.search(/^\s*\[/m);
+  const rootEnd = firstSection === -1 ? source.length : firstSection;
+  const assignments = new RegExp(`^([ \\t]*)(?:${keys.join('|')})[ \\t]*=.*(?:\\r?\\n|$)`, 'gm');
+  const root = source.slice(0, rootEnd).replace(assignments, (match, indent: string) => {
+    const newline = match.endsWith('\r\n') ? '\r\n' : match.endsWith('\n') ? '\n' : '';
+    const comment = tomlCommentSuffix(match.replace(/\r?\n$/, '')).trimStart();
+    return comment ? `${indent}${comment}${newline}` : '';
+  });
+  return root + source.slice(rootEnd);
+}
+
 function updateToml(
   before: string | null,
   label: string,
@@ -364,6 +373,12 @@ function updateHermesYaml(
       'Hermes config.yaml providers section must be an object.',
     );
   }
+  if (root.model_overrides !== undefined) {
+    assertObject(
+      root.model_overrides,
+      'Hermes config.yaml model_overrides section must be an object.',
+    );
+  }
   if (root.agent !== undefined) {
     assertObject(
       root.agent,
@@ -378,61 +393,44 @@ function updateHermesYaml(
       'Hermes config.yaml agent.reasoning_overrides section must be an object.',
     );
   }
-  const providerConfig = (root.providers as Record<string, unknown> | undefined)?.[provider];
-  if (providerConfig !== undefined) {
+  const providerOverrides = (root.model_overrides as Record<string, unknown> | undefined)?.[provider];
+  if (providerOverrides !== undefined) {
     assertObject(
-      providerConfig,
-      `Hermes config.yaml providers.${provider} section must be an object.`,
+      providerOverrides,
+      `Hermes config.yaml model_overrides.${provider} section must be an object.`,
     );
   }
-  const configuredModels = (providerConfig as Record<string, unknown> | undefined)?.models;
-  if (configuredModels !== undefined
-    && !Array.isArray(configuredModels)
-    && (typeof configuredModels !== 'object' || configuredModels === null)) {
-    throw new CLIError(
-      `Hermes config.yaml providers.${provider}.models must be an object or array.`,
-      ExitCode.GENERAL,
-      INVALID_CONFIG_HINT,
-    );
-  }
-  if (Array.isArray(configuredModels)) {
-    const configuredIds = new Set(configuredModels.flatMap((entry) => {
-      if (typeof entry === 'string') return [entry];
-      if (typeof entry === 'object' && entry !== null && !Array.isArray(entry)) {
-        const id = (entry as Record<string, unknown>).id;
-        return typeof id === 'string' ? [id] : [];
-      }
-      return [];
-    }));
-    for (const candidate of MINIMAX_MODELS) {
-      if (!configuredIds.has(candidate.id)) {
-        document.addIn(
-          ['providers', provider, 'models'],
-          { id: candidate.id, context_length: candidate.contextWindow },
-        );
-      }
-    }
-  } else {
-    const modelMap = configuredModels as Record<string, unknown> | undefined;
-    for (const candidate of MINIMAX_MODELS) {
-      if (modelMap?.[candidate.id] !== undefined) {
-        assertObject(
-          modelMap[candidate.id],
-          `Hermes model definition for ${candidate.id} must be an object.`,
-        );
-      }
-      document.setIn(
-        ['providers', provider, 'models', candidate.id, 'context_length'],
-        candidate.contextWindow,
+  const modelMap = providerOverrides as Record<string, unknown> | undefined;
+  for (const candidate of MINIMAX_MODELS) {
+    if (modelMap?.[candidate.id] !== undefined) {
+      assertObject(
+        modelMap[candidate.id],
+        `Hermes model override for ${candidate.id} must be an object.`,
       );
     }
+    const hermesContextWindow = candidate.id === 'MiniMax-M3.1-Flash-Preview'
+      || candidate.id === 'MiniMax-M3'
+      ? 1_000_000
+      : candidate.contextWindow;
+    document.setIn(
+      ['model_overrides', provider, candidate.id, 'context_window'],
+      hermesContextWindow,
+    );
+    document.setIn(
+      ['model_overrides', provider, candidate.id, 'supports_vision'],
+      candidate.input.some(input => input === 'image'),
+    );
   }
   const selectedModel = minimaxModel(model);
   document.setIn(['model', 'default'], model);
   document.setIn(['model', 'provider'], provider);
   document.setIn(['model', 'base_url'], baseUrl);
-  document.setIn(['model', 'context_length'], selectedModel.contextWindow);
-  document.setIn(['model', 'max_tokens'], selectedModel.maxTokens);
+  document.setIn(
+    ['model', 'context_length'],
+    model === 'MiniMax-M3.1-Flash-Preview' || model === 'MiniMax-M3'
+      ? 1_000_000
+      : selectedModel.contextWindow,
+  );
   if ((reasoningOverrides as Record<string, unknown> | undefined)?.['MiniMax-M3'] === undefined) {
     // Hermes currently serializes enabled MiniMax thinking with the legacy
     // budget-based shape. Omitting thinking is the safe M3 default.
@@ -497,7 +495,12 @@ function prepareClaude(options: AgentSetupOptions, path: string): PreparedAgentF
     label: candidate.id,
     description: candidate.id.endsWith('-highspeed')
       ? '204.8K context · faster inference'
-      : `${candidate.contextWindow === 1000000 ? '1M' : '204.8K'} context`,
+      : candidate.id === 'MiniMax-M3.1-Flash-Preview' || candidate.id === 'MiniMax-M3'
+        ? candidate.id === options.model
+          ? `1M supported · ${candidate.id === 'MiniMax-M3.1-Flash-Preview'
+            && (options.m31ContextWindow ?? 524288) !== 1_000_000 ? '512K' : '1M'} compact`
+          : '1M supported'
+        : '204.8K context',
   }));
   const managedPickerModels = new Set(MINIMAX_MODELS.flatMap(candidate => [
     candidate.id,
@@ -525,11 +528,15 @@ function prepareClaude(options: AgentSetupOptions, path: string): PreparedAgentF
     ANTHROPIC_AUTH_TOKEN: options.apiKey,
     API_TIMEOUT_MS: '3000000',
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
-    CLAUDE_CODE_AUTO_COMPACT_WINDOW: String(minimaxModel(options.model).contextWindow),
+    CLAUDE_CODE_AUTO_COMPACT_WINDOW: String(
+      options.model === 'MiniMax-M3.1-Flash-Preview'
+        ? options.m31ContextWindow ?? 524288
+        : minimaxModel(options.model).contextWindow,
+    ),
     ANTHROPIC_MODEL: model,
-    ANTHROPIC_DEFAULT_SONNET_MODEL: claudeModelId('MiniMax-M2.7'),
-    ANTHROPIC_DEFAULT_OPUS_MODEL: claudeModelId('MiniMax-M3'),
-    ANTHROPIC_DEFAULT_HAIKU_MODEL: claudeModelId('MiniMax-M2.7-highspeed'),
+    ANTHROPIC_DEFAULT_SONNET_MODEL: model,
+    ANTHROPIC_DEFAULT_OPUS_MODEL: model,
+    ANTHROPIC_DEFAULT_HAIKU_MODEL: model,
   };
   return [{
     agent: 'claude-code',
@@ -546,35 +553,47 @@ function prepareClaude(options: AgentSetupOptions, path: string): PreparedAgentF
   }];
 }
 
-function codexModelCatalog(): string {
+function codexModelCatalog(options: AgentSetupOptions): string {
   return `${JSON.stringify({
     _managed_by: CODEX_MODEL_CATALOG_OWNER,
-    models: MINIMAX_MODELS.map((model, priority) => ({
-      slug: model.id,
-      display_name: model.id,
-      description: 'MiniMax',
-      default_reasoning_level: 'high',
-      supported_reasoning_levels: model.id === 'MiniMax-M3'
-        ? [
-          { effort: 'none', description: 'Think-Off' },
-          { effort: 'high', description: 'Deep' },
-        ]
-        : [{ effort: 'high', description: 'Always on' }],
-      shell_type: 'shell_command',
-      visibility: 'list',
-      supported_in_api: true,
-      priority,
-      base_instructions: `You are Codex, a coding agent based on ${model.id}. You and the user share the same workspace and collaborate to achieve the user's goals.`,
-      supports_reasoning_summaries: true,
-      default_reasoning_summary: 'none',
-      support_verbosity: false,
-      truncation_policy: { mode: 'bytes', limit: 10000 },
-      supports_parallel_tool_calls: true,
-      experimental_supported_tools: [],
-      context_window: model.contextWindow,
-      max_context_window: model.contextWindow,
-      input_modalities: [...model.input],
-    })),
+    models: MINIMAX_MODELS.map((model, priority) => {
+      const contextWindow = model.id === 'MiniMax-M3.1-Flash-Preview'
+        ? options.m31ContextWindow ?? 524288 : model.contextWindow;
+      return {
+        slug: model.id,
+        display_name: model.id,
+        description: model.id === 'MiniMax-M3.1-Flash-Preview'
+          ? 'MiniMax M3.1 Flash Preview'
+          : 'MiniMax',
+        default_reasoning_level: model.codex.defaultReasoningLevel,
+        supported_reasoning_levels: model.codex.supportedReasoningLevels,
+        shell_type: 'shell_command',
+        visibility: 'list',
+        supported_in_api: true,
+        priority,
+        base_instructions: `You are Codex, a coding agent based on ${model.id}. You and the user share the same workspace and collaborate to achieve the user's goals.`,
+        supports_reasoning_summaries: true,
+        default_reasoning_summary: 'none',
+        support_verbosity: false,
+        truncation_policy: { mode: 'tokens', limit: 10000 },
+        supports_parallel_tool_calls: true,
+        experimental_supported_tools: [],
+        prefer_websockets: false,
+        apply_patch_tool_type: 'freeform',
+        web_search_tool_type: 'text',
+        supports_image_detail_original: false,
+        tool_mode: 'code_mode_only',
+        multi_agent_version: 'v2',
+        use_responses_lite: false,
+        effective_context_window_percent: contextWindow === 1_000_000 ? 85 : 95,
+        auto_compact_token_limit: null,
+        reasoning_summary_format: 'experimental',
+        supports_search_tool: true,
+        context_window: contextWindow,
+        max_context_window: contextWindow,
+        input_modalities: [...model.input],
+      };
+    }),
   }, null, 2)}\n`;
 }
 
@@ -585,8 +604,10 @@ function prepareCodex(options: AgentSetupOptions, paths: string[]): PreparedAgen
   }
   const config = readPrepared(configPath);
   const endpoints = endpointsForRegion(options.region);
+  const model = minimaxModel(options.model);
   let configAfter = updateToml(config.before, 'Codex config.toml', {
     model: options.model,
+    model_reasoning_effort: model.codex.defaultReasoningLevel,
     model_provider: 'minimax',
   }, [{
     name: 'model_providers.minimax',
@@ -617,6 +638,10 @@ function prepareCodex(options: AgentSetupOptions, paths: string[]): PreparedAgen
       );
     }
   }
+  configAfter = removeTomlRootAssignments(configAfter, [
+    'model_context_window',
+    'model_auto_compact_token_limit',
+  ]);
   configAfter = upsertTomlRoot(configAfter, {
     model_catalog_json: CODEX_MODEL_CATALOG_FILENAME,
   });
@@ -631,7 +656,7 @@ function prepareCodex(options: AgentSetupOptions, paths: string[]): PreparedAgen
       agent: 'codex',
       path: catalogPath,
       ...catalog,
-      after: codexModelCatalog(),
+      after: codexModelCatalog(options),
     },
   ];
 }
@@ -711,12 +736,20 @@ function prepareOpenCode(options: AgentSetupOptions, path: string): PreparedAgen
         `OpenCode model definition for ${model.id} modalities must be an object.`,
       );
     }
+    if (model.id === 'MiniMax-M3.1-Flash-Preview') {
+      const variants = (configuredModel as Record<string, unknown> | undefined)?.variants;
+      if (variants !== undefined) {
+        assertObject(variants, `OpenCode model definition for ${model.id} variants must be an object.`);
+      }
+    }
   }
   const endpoints = endpointsForRegion(options.region);
   const modelUpdates = MINIMAX_MODELS.flatMap((model) => {
     const input: Array<'text' | 'image'> = [...model.input];
     return [
       { path: ['provider', 'minimax', 'models', model.id, 'name'], value: model.id },
+      { path: ['provider', 'minimax', 'models', model.id, 'reasoning'], value: true },
+      { path: ['provider', 'minimax', 'models', model.id, 'temperature'], value: true },
       {
         path: ['provider', 'minimax', 'models', model.id, 'attachment'],
         value: input.includes('image'),
@@ -731,7 +764,8 @@ function prepareOpenCode(options: AgentSetupOptions, path: string): PreparedAgen
       },
       {
         path: ['provider', 'minimax', 'models', model.id, 'limit', 'context'],
-        value: model.contextWindow,
+        value: model.id === 'MiniMax-M3.1-Flash-Preview'
+          ? options.m31ContextWindow ?? 524288 : model.contextWindow,
       },
       {
         path: ['provider', 'minimax', 'models', model.id, 'limit', 'output'],
@@ -739,6 +773,17 @@ function prepareOpenCode(options: AgentSetupOptions, path: string): PreparedAgen
       },
     ];
   });
+  const m31Path = ['provider', 'minimax', 'models', 'MiniMax-M3.1-Flash-Preview'];
+  const m31Updates = [
+    { path: [...m31Path, 'interleaved'], value: { field: 'reasoning_content' } },
+    { path: [...m31Path, 'variants', 'none', 'disabled'], value: true },
+    { path: [...m31Path, 'variants', 'thinking', 'disabled'], value: true },
+    { path: [...m31Path, 'variants', 'default', 'reasoningEffort'], value: 'max' },
+    ...(['low', 'medium', 'high', 'xhigh', 'max'] as const).map(effort => ({
+      path: [...m31Path, 'variants', effort, 'reasoningEffort'],
+      value: effort,
+    })),
+  ];
   return [{
     agent: 'opencode',
     path,
@@ -748,8 +793,9 @@ function prepareOpenCode(options: AgentSetupOptions, path: string): PreparedAgen
       { path: ['provider', 'minimax', 'name'], value: 'MiniMax' },
       { path: ['provider', 'minimax', 'options', 'baseURL'], value: endpoints.openai },
       { path: ['provider', 'minimax', 'options', 'apiKey'], value: options.apiKey },
-      { path: ['provider', 'minimax', 'options', 'setCacheKey'], value: true },
+      { path: ['provider', 'minimax', 'options', 'setCacheKey'], value: undefined },
       ...modelUpdates,
+      ...m31Updates,
       { path: ['model'], value: `minimax/${options.model}` },
     ]),
   }];
