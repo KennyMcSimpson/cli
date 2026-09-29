@@ -14,7 +14,7 @@ export type AgentId = typeof AGENT_IDS[number];
 export const MINIMAX_MODELS = [
   {
     id: 'MiniMax-M3.1-Flash-Preview',
-    contextWindow: 1048576,
+    contextWindow: 524288,
     maxTokens: 128000,
     input: ['text', 'image'],
     codex: {
@@ -30,7 +30,7 @@ export const MINIMAX_MODELS = [
   },
   {
     id: 'MiniMax-M3',
-    contextWindow: 1000000,
+    contextWindow: 524288,
     maxTokens: 128000,
     input: ['text', 'image'],
     codex: {

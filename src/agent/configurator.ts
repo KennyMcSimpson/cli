@@ -48,7 +48,9 @@ function minimaxModel(modelId: MiniMaxModelId) {
 }
 
 function claudeModelId(modelId: MiniMaxModelId): string {
-  return minimaxModel(modelId).contextWindow >= 1000000 ? `${modelId}[1m]` : modelId;
+  return modelId === 'MiniMax-M3.1-Flash-Preview' || modelId === 'MiniMax-M3'
+    ? `${modelId}[1m]`
+    : modelId;
 }
 
 function grokModelProfile(modelId: MiniMaxModelId): string {
@@ -497,7 +499,9 @@ function prepareClaude(options: AgentSetupOptions, path: string): PreparedAgentF
     label: candidate.id,
     description: candidate.id.endsWith('-highspeed')
       ? '204.8K context · faster inference'
-      : `${candidate.contextWindow >= 1000000 ? '1M' : '204.8K'} context`,
+      : candidate.contextWindow >= 524288
+        ? '1M supported · 512K compact'
+        : '204.8K context',
   }));
   const managedPickerModels = new Set(MINIMAX_MODELS.flatMap(candidate => [
     candidate.id,

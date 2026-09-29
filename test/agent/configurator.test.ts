@@ -75,6 +75,18 @@ describe('agent configurator', () => {
     rmSync(home, { recursive: true, force: true });
   });
 
+  it('keeps the 1M Claude selector with a 512K auto-compact window for M3.1', () => {
+    applyAgentConfigurations(prepareAgentConfigurations(setupOptions(
+      ['claude-code'],
+      { model: 'MiniMax-M3.1-Flash-Preview' },
+    )));
+
+    const claude = JSON.parse(readFileSync(join(home, '.claude', 'settings.json'), 'utf8'));
+    expect(claude.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW).toBe('524288');
+    expect(claude.env.ANTHROPIC_MODEL).toBe('MiniMax-M3.1-Flash-Preview[1m]');
+    expect(claude.env.ANTHROPIC_DEFAULT_OPUS_MODEL).toBe('MiniMax-M3[1m]');
+  });
+
   it('configures all supported agents without discarding unrelated settings', () => {
     const prepared = prepareAgentConfigurations(setupOptions([...AGENT_IDS], { region: 'cn' }));
     const result = applyAgentConfigurations(prepared);
@@ -85,7 +97,7 @@ describe('agent configurator', () => {
     expect(claude.theme).toBe('dark');
     expect(claude.env.ANTHROPIC_BASE_URL).toBe('https://api.minimax.cn/anthropic');
     expect(claude.env.ANTHROPIC_AUTH_TOKEN).toBe('sk-test-secret');
-    expect(claude.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW).toBe('1000000');
+    expect(claude.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW).toBe('524288');
     expect(claude.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS).toBeUndefined();
     expect(claude.env.ANTHROPIC_MODEL).toBe('MiniMax-M3[1m]');
     expect(claude.env.ANTHROPIC_DEFAULT_OPUS_MODEL).toBe('MiniMax-M3[1m]');
@@ -97,9 +109,9 @@ describe('agent configurator', () => {
         {
           model: 'MiniMax-M3.1-Flash-Preview[1m]',
           label: 'MiniMax-M3.1-Flash-Preview',
-          description: '1M context',
+          description: '1M supported · 512K compact',
         },
-        { model: 'MiniMax-M3[1m]', label: 'MiniMax-M3', description: '1M context' },
+        { model: 'MiniMax-M3[1m]', label: 'MiniMax-M3', description: '1M supported · 512K compact' },
         { model: 'MiniMax-M2.7', label: 'MiniMax-M2.7', description: '204.8K context' },
         {
           model: 'MiniMax-M2.7-highspeed',
@@ -149,8 +161,8 @@ describe('agent configurator', () => {
       reasoning_summary_format: 'experimental',
       supports_search_tool: true,
       supports_parallel_tool_calls: true,
-      context_window: 1048576,
-      max_context_window: 1048576,
+      context_window: 524288,
+      max_context_window: 524288,
       input_modalities: ['text', 'image'],
     });
     expect(codexCatalog.models[1]).toMatchObject({
@@ -161,8 +173,8 @@ describe('agent configurator', () => {
         + "You and the user share the same workspace and collaborate to achieve the user's goals.",
       shell_type: 'shell_command',
       supports_parallel_tool_calls: true,
-      context_window: 1000000,
-      max_context_window: 1000000,
+      context_window: 524288,
+      max_context_window: 524288,
       input_modalities: ['text', 'image'],
       supported_reasoning_levels: [
         { effort: 'none', description: 'Think-Off' },
@@ -218,7 +230,7 @@ describe('agent configurator', () => {
     expect(openCode.provider.minimax.models['MiniMax-M3'].modalities)
       .toEqual({ input: ['text', 'image'], output: ['text'] });
     expect(openCode.provider.minimax.models['MiniMax-M3'].limit)
-      .toEqual({ context: 1000000, output: 128000 });
+      .toEqual({ context: 524288, output: 128000 });
     expect(openCode.provider.minimax.models['MiniMax-M2.7'].attachment).toBe(false);
     expect(openCode.provider.minimax.models['MiniMax-M2.7'].modalities)
       .toEqual({ input: ['text'], output: ['text'] });
@@ -229,7 +241,7 @@ describe('agent configurator', () => {
 
     const hermes = parseYaml(readFileSync(join(home, '.hermes', 'config.yaml'), 'utf8'));
     expect(hermes.model.provider).toBe('minimax-cn');
-    expect(hermes.model.context_length).toBe(1000000);
+    expect(hermes.model.context_length).toBe(524288);
     expect(hermes.model.max_tokens).toBe(128000);
     expect(hermes.agent.reasoning_overrides['MiniMax-M3']).toBe('none');
     expect(Object.keys(hermes.providers['minimax-cn'].models))
@@ -251,7 +263,7 @@ describe('agent configurator', () => {
     expect(piModels.providers['minimax-cn'].models[1]).toMatchObject({
       id: 'MiniMax-M3',
       input: ['text', 'image'],
-      contextWindow: 1000000,
+      contextWindow: 524288,
       maxTokens: 128000,
     });
     expect(piModels.providers['minimax-cn'].models[1].thinkingLevelMap).toBeUndefined();
@@ -362,7 +374,7 @@ describe('agent configurator', () => {
       ]);
     expect(configured.providers.minimax.models[0]).toMatchObject({
       input: ['text', 'image'],
-      contextWindow: 1048576,
+      contextWindow: 524288,
       maxTokens: 128000,
     });
   });
